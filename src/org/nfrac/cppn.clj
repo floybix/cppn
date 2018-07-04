@@ -44,7 +44,7 @@
 (s/def ::node-id keyword?)
 (s/def ::inputs (s/coll-of ::node-id, :min-count 1, :kind set?))
 (s/def ::outputs (s/coll-of ::node-id, :min-count 1, :kind set?))
-(s/def ::nodes (s/map-of ::node-id all-node-types, :min-count 1))
+(s/def ::nodes (s/map-of ::node-id all-node-types, :min-count 0))
 (s/def ::weight (s/double-in :min -100 :max 100 :NaN? false))
 (s/def ::node-edges (s/map-of ::node-id ::weight))
 (s/def ::edges (s/map-of ::node-id ::node-edges, :min-count 1))
@@ -180,6 +180,11 @@
   (let [[rng rng*] (random/split rng)
         before (util/rand-nth rng* (keys (:edges cppn)))]
     (mutate-add-node-before cppn before rng)))
+
+(s/fdef mutate-add-node
+        :args (s/cat :cppn ::cppn
+                     :rng ::util/rng)
+        :ret ::cppn)
 
 (defn mutate-append-node
   [cppn rng]
@@ -333,3 +338,40 @@
         [rng rng*] (random/split rng)]
     (-> (mutate-structure cppn rng* parameters)
         (randomise-weights weight-perturbation rng))))
+
+(defn rand-cppn
+  [inputs outputs rng]
+  (let [[rng rng*] (random/split rng)
+        init-edges (loop [outputs (seq outputs)
+                          edges {}
+                          rng rng*]
+                     (if-let [o (first outputs)]
+                       (let [[r1 r2 r3 rng] (random/split-n rng 5)
+                             ins (take 2 (util/shuffle r1 (seq inputs)))
+                             weights [(util/rand r2 -1.0 1.0)
+                                      (util/rand r3 -1.0 1.0)]]
+                         (recur (rest outputs)
+                                (assoc edges o (zipmap ins weights))
+                                rng))
+                       edges))]
+    (loop [cppn {:inputs (set inputs)
+                 :outputs (set outputs)
+                 :zerod #{}
+                 :nodes {}
+                 :edges init-edges}
+           i (count outputs)
+           rng rng]
+      (if (pos? i)
+        (let [[rng rng*] (random/split rng)]
+          (recur (mutate-add-node cppn rng*)
+                 (dec i)
+                 rng))
+        cppn))))
+
+(s/fdef rand-cppn
+        :args (s/and
+               (s/cat :inputs (s/coll-of keyword?, :min-count 1)
+                      :outputs (s/coll-of keyword?, :min-count 1)
+                      :rng ::util/rng)
+               #(not-any? (set (:inputs %)) (:outputs %)))
+        :ret ::cppn)
